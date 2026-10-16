@@ -51,7 +51,9 @@
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
   #hud .score { font-size: 34px; line-height: 1.1; color: #ff8c2b; display: inline-block; }
-  #hud .best  { font-size: 15px; color: #8b7bb8; margin-top: 2px; }
+  #hud .combo { font-size: 15px; color: #8b7bb8; margin-top: 2px; }
+  #hud .combo b { color: #ff8c2b; font-size: 18px; }
+  .enc { margin: 4px 0 0; font-size: 15px; color: #9b8ec4; }
   .bump { animation: bump .38s cubic-bezier(.2,1.6,.4,1); }
   @keyframes bump { 0% { transform: scale(1); } 35% { transform: scale(1.4) rotate(-5deg); } 100% { transform: scale(1); } }
 
@@ -169,6 +171,7 @@
 <div id="hud">
   <div class="title">🍬 糖果贪吃蛇</div>
   <div class="score">⭐ <span id="score">0</span></div>
+  <div class="combo">连击 <b id="combo">0</b></div>
   <div class="best">🏆 最高 <span id="best">0</span></div>
 </div>
 
@@ -208,6 +211,7 @@
     <div class="final">得分 <span id="final">0</span></div>
     <div class="medal" id="medal">🥉</div>
     <div class="bestline">🏆 最高 <span id="best2">0</span><span id="newbest" class="newbest">🎉 新纪录！</span></div>
+    <p class="enc" id="overEnc">没关系，再来一次会更棒！</p>
     <div>
       <button id="again" class="big-btn">🔁 再玩一局</button>
       <button id="menu" class="ghost-btn">🏠 换模式</button>
@@ -240,7 +244,7 @@ const FOODS = [
   { e: '🍌', n: '香蕉',   p: 3, w: 13, c: 0xffd93d },
   { e: '🍇', n: '葡萄',   p: 4, w: 9,  c: 0xa66dd4 },
   { e: '🍩', n: '甜甜圈', p: 5, w: 7,  c: 0xf78fb3 },
-  { e: '⭐', n: '幸运星', p: 8, w: 5,  c: 0xffb400 },
+  { e: '⭐', n: '幸运星', p: 8, w: 5, c: 0xffb400, timeLimit: 7000 },
 ];
 const TOTAL_W = FOODS.reduce((s, f) => s + f.w, 0);
 function pickFood() {
@@ -478,7 +482,7 @@ function eatSound(p) { beep(420 + p * 70, .1, 'triangle', .2); setTimeout(() => 
 function overSound() { [520, 400, 300, 200].forEach((f, i) => setTimeout(() => beep(f, .18, 'sawtooth', .12), i * 130)); }
 
 // ================= 状态 =================
-let snake, dir, pending, tickMs, score, alive, foods = [], state = 'start', mode = 'easy';
+let snake, dir, pending, tickMs, score, alive, foods = [], state = 'start', mode = 'easy', combo = 0;
 const scoreEl = document.getElementById('score');
 const bestEl = document.getElementById('best');
 const best2El = document.getElementById('best2');
@@ -489,6 +493,8 @@ const startEl = document.getElementById('start');
 const overEl = document.getElementById('over');
 const overTitle = document.getElementById('overTitle');
 const overMascot = document.getElementById('overMascot');
+const comboEl = document.getElementById('combo');
+const overEncEl = document.getElementById('overEnc');
 
 let best = +(localStorage.getItem('candy-snake-best') || 0);
 bestEl.textContent = best;
@@ -506,7 +512,9 @@ function spawnFood() {
   const c = emptyCell();
   if (!c) { alive = false; state = 'over'; gameOver(); return; }
   const type = pickFood();
-  foods.push({ x: c[0], z: c[1], type, mesh: makeFood(type) });
+  const f = { x: c[0], z: c[1], type, mesh: makeFood(type) };
+  if (type.timeLimit) f.expireAt = performance.now() + type.timeLimit;
+  foods.push(f);
 }
 
 function removeFood(idx) {
@@ -521,6 +529,8 @@ function reset() {
   pending = [];
   tickMs = TICK0;
   score = 0;
+  combo = 0;
+  comboEl.textContent = '0';
   alive = true;
   foods.forEach(f => scene.remove(f.mesh));
   foods = [];
@@ -569,12 +579,15 @@ function step() {
   if (eatIdx >= 0) {
     const type = foods[eatIdx].type;
     score += type.p;
+    combo++;
     scoreEl.textContent = score;
     scoreEl.classList.remove('bump'); void scoreEl.offsetWidth; scoreEl.classList.add('bump');
+    comboEl.textContent = combo;
     const fl = document.getElementById('flash');
     fl.classList.remove('on'); void fl.offsetWidth; fl.classList.add('on');
     tickMs = Math.max(TICK_MIN, TICK0 - score * TICK_STEP);
     addPopup('+' + type.p, head, '#' + type.c.toString(16).padStart(6, '0'));
+    if (combo > 0 && combo % 5 === 0) addPopup('连击 x' + combo + '!', head, '#e8590c');
     burst(head, type.c);
     eatSound(type.p);
     removeFood(eatIdx);
@@ -594,6 +607,10 @@ function medal(s) {
   return '🌟';
 }
 
+const ENC = [
+  '没关系，再来一次会更棒！', '哇，好接近了，再冲一把！', '小蛇已经很棒啦，加油！',
+  '下次试试更小心地转弯～', '吃得越多分越高，试试金色星星！', '贪吃蛇精神：永不放弃！',
+];
 function gameOver() {
   alive = false;
   state = 'over';
@@ -602,6 +619,7 @@ function gameOver() {
   medalEl.textContent = medal(score);
   overTitle.textContent = score >= 60 ? '太厉害啦！' : '游戏结束啦';
   overMascot.textContent = score >= 60 ? '🥳' : '🐍';
+  overEncEl.textContent = ENC[(Math.random() * ENC.length) | 0];
   const isBest = score > 0 && score >= best;
   newbestEl.classList.toggle('show', isBest);
   overEl.classList.add('show');
@@ -690,6 +708,25 @@ function loop(now) {
 
   const t = now / 1000;
   // 食物：上下浮动 + 轻轻摇摆 + 光晕呼吸
+  // 限时食物（⭐）过期自动跑掉，并闪烁提示
+  for (let i = foods.length - 1; i >= 0; i--) {
+    const f = foods[i];
+    if (f.expireAt) {
+      const remain = f.expireAt - performance.now();
+      if (remain <= 0) {
+        removeFood(i);
+        if (state === 'playing' && alive) spawnFood();
+        continue;
+      }
+      if (remain < 2000) {
+        const on = Math.floor(remain / 150) % 2 === 0;
+        f.mesh.userData.spr.material.opacity = on ? 1 : 0.35;
+      } else {
+        f.mesh.userData.spr.material.opacity = 1;
+      }
+    }
+  }
+  // 食物：上下浮动 + 轻轻摇摆 + 光晕呼吸
   foods.forEach(f => {
     const u = f.mesh.userData;
     f.mesh.position.set(wx(f.x), 0.06 * Math.sin(t * 3 + u.phase), wz(f.z));
@@ -729,7 +766,8 @@ window.__candy = {
   get tick() { return tickMs; },
   get head() { return { ...snake[0] }; },
   get dir() { return { ...dir }; },
-  get foods() { return foods.map(f => ({ x: f.x, z: f.z, p: f.type.p, e: f.type.e })); },
+  get foods() { return foods.map(f => ({ x: f.x, z: f.z, p: f.type.p, e: f.type.e, exp: f.expireAt || 0 })); },
+  get combo() { return combo; },
 };
 
 // ================= 自适应相机（棋盘始终完整可见） =================
