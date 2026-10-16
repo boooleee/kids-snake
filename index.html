@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<title>贪吃蛇 · Three.js</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1117; }
+  #hud {
+    position: fixed; top: 12px; left: 12px; color: #e6edf3;
+    font: 16px/1.5 ui-monospace, Consolas, monospace; user-select: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,.6);
+  }
+  #hud .score { font-size: 28px; color: #58d68d; }
+  #hud .hint { color: #7d8590; font-size: 13px; margin-top: 4px; }
+  #over {
+    position: fixed; inset: 0; display: none; place-items: center;
+    background: rgba(0,0,0,.55); color: #fff; text-align: center;
+    font: 24px/1.6 ui-monospace, Consolas, monospace;
+  }
+  #over.show { display: grid; }
+  #over small { display: block; margin-top: 8px; color: #9aa4b2; font-size: 14px; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <div class="score">得分 <span id="score">0</span></div>
+  <div class="hint">方向键 / WASD 移动 · 撞墙或咬到自己即结束</div>
+</div>
+<div id="over">
+  <div>💀 游戏结束<br>得分 <span id="final">0</span>
+    <small>按 R 或点击 重新开始</small>
+  </div>
+</div>
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+// ---------- 常量 ----------
+const N = 16;                 // 网格 N x N
+const TICK0 = 150;            // 初始步长 ms
+const TICK_MIN = 70;          // 最快步长
+const CELL = 1;               // 格子世界尺寸
+
+// ---------- 坐标 ----------
+const wx = i => i - N / 2 + 0.5;
+const wz = j => j - N / 2 + 0.5;
+
+// ---------- 渲染 ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1117);
+
+const half = N * CELL / 2;
+const camera = new THREE.OrthographicCamera(-half, half, half, -half, 0.1, 100);
+camera.position.set(0, 20, 0);
+camera.lookAt(0, 0, 0);
+
+// 棋盘格地板
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(N, N),
+  new THREE.MeshLambertMaterial({ color: 0x161b22 })
+);
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = -0.51;
+scene.add(floor);
+for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+  if ((i + j) % 2) {
+    const t = new THREE.Mesh(
+      new THREE.PlaneGeometry(CELL - 0.04, CELL - 0.04),
+      new THREE.MeshLambertMaterial({ color: 0x1c232c })
+    );
+    t.rotation.x = -Math.PI / 2;
+    t.position.set(wx(i), -0.5, wz(j));
+    scene.add(t);
+  }
+}
+// 边界线
+scene.add(new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.BoxGeometry(N, 0.4, N)),
+  new THREE.LineBasicMaterial({ color: 0x30363d })
+));
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
+dirLight.position.set(10, 20, 5);
+scene.add(dirLight, new THREE.AmbientLight(0x404040, 1.2));
+
+// 蛇身（对象池：预建 N*N 个立方体，按需显示）
+const segGeo = new THREE.BoxGeometry(0.9, 0.9, 0.9);
+const segMat = new THREE.MeshLambertMaterial({ color: 0x3fb950 });
+const headMat = new THREE.MeshLambertMaterial({ color: 0x58d68d });
+const pool = Array.from({ length: N * N }, () => {
+  const m = new THREE.Mesh(segGeo, segMat);
+  m.visible = false;
+  scene.add(m);
+  return m;
+});
+
+// 食物
+const food = new THREE.Mesh(
+  new THREE.SphereGeometry(0.38, 24, 18),
+  new THREE.MeshLambertMaterial({ color: 0xf85149 })
+);
+scene.add(food);
+let foodSpin = 0, foodCell = null;
+
+// ---------- 状态 ----------
+let snake, dir, pending, tickMs, score, alive;
+const scoreEl = document.getElementById('score');
+const overEl = document.getElementById('over');
+const finalEl = document.getElementById('final');
+
+function emptyCell() {
+  const occupied = new Set(snake.map(s => s.x + ',' + s.z));
+  const free = [];
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++)
+    if (!occupied.has(i + ',' + j)) free.push([i, j]);
+  return free.length ? free[(Math.random() * free.length) | 0] : null;
+}
+
+function placeFood() {
+  const c = emptyCell();
+  if (!c) { alive = false; food.visible = false; gameOver(); return; }
+  foodCell = { x: c[0], z: c[1] };
+  food.position.set(wx(foodCell.x), 0, wz(foodCell.z));
+  food.visible = true;
+}
+
+function reset() {
+  snake = [{ x: 4, z: 8 }, { x: 3, z: 8 }, { x: 2, z: 8 }];
+  dir = { x: 1, z: 0 };
+  pending = [];
+  tickMs = TICK0;
+  score = 0;
+  alive = true;
+  foodCell = null;
+  scoreEl.textContent = '0';
+  overEl.classList.remove('show');
+  placeFood();
+  renderSnake();
+}
+
+function renderSnake() {
+  for (let i = 0; i < pool.length; i++) {
+    const seg = snake[i];
+    const m = pool[i];
+    if (!seg) { m.visible = false; continue; }
+    m.visible = true;
+    m.material = i === 0 ? headMat : segMat;
+    m.position.set(wx(seg.x), 0, wz(seg.z));
+  }
+}
+
+function step() {
+  if (pending.length) dir = pending.shift();
+  const head = { x: snake[0].x + dir.x, z: snake[0].z + dir.z };
+  if (head.x < 0 || head.x >= N || head.z < 0 || head.z >= N) return gameOver();
+  const key = head.x + ',' + head.z;
+  if (snake.slice(0, -1).some(s => s.x + ',' + s.z === key)) return gameOver();
+  snake.unshift(head);
+  if (head.x === foodCell.x && head.z === foodCell.z) {
+    score++;
+    scoreEl.textContent = score;
+    tickMs = Math.max(TICK_MIN, TICK0 - score * 4);
+    placeFood();
+  } else {
+    snake.pop();
+  }
+  renderSnake();
+}
+
+function gameOver() {
+  alive = false;
+  finalEl.textContent = score;
+  overEl.classList.add('show');
+}
+
+// ---------- 输入 ----------
+const DIRS = {
+  ArrowUp: { x: 0, z: -1 }, w: { x: 0, z: -1 },
+  ArrowDown: { x: 0, z: 1 }, s: { x: 0, z: 1 },
+  ArrowLeft: { x: -1, z: 0 }, a: { x: -1, z: 0 },
+  ArrowRight: { x: 1, z: 0 }, d: { x: 1, z: 0 },
+};
+addEventListener('keydown', e => {
+  if (e.key.toLowerCase() === 'r' || !alive) { if (!alive) reset(); return; }
+  const d = DIRS[e.key];
+  if (!d) return;
+  // 禁止掉头/原地，最多缓冲两步
+  const last = pending[pending.length - 1] || dir;
+  if ((last.x === -d.x && last.z === -d.z) || (last.x === d.x && last.z === d.z)) return;
+  if (pending.length < 2) pending.push(d);
+});
+addEventListener('click', () => { if (!alive) reset(); });
+
+// ---------- 主循环（固定步长） ----------
+let acc = 0, last = performance.now();
+function loop(now) {
+  requestAnimationFrame(loop);
+  acc += Math.min(now - last, 500);
+  last = now;
+  while (acc >= tickMs) {
+    acc -= tickMs;
+    if (alive) step();
+  }
+  if (food.visible) { foodSpin += 0.03; food.rotation.y = foodSpin; }
+  renderer.render(scene, camera);
+}
+reset();
+loop(performance.now());
+
+// ---------- 自适应相机（棋盘始终完整可见） ----------
+function fitCamera() {
+  const a = innerWidth / innerHeight;
+  const fit = half / Math.min(a, 1 / a);
+  camera.left = -fit; camera.right = fit;
+  camera.top = fit; camera.bottom = -fit;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  fitCamera();
+});
+fitCamera();
+</script>
+</body>
+</html>
