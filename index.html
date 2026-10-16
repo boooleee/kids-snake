@@ -2,36 +2,58 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8" />
-<title>贪吃蛇 · Three.js</title>
+<title>快乐贪吃蛇 · 水果大餐</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1117; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #fff6e9; }
   #hud {
-    position: fixed; top: 12px; left: 12px; color: #e6edf3;
-    font: 16px/1.5 ui-monospace, Consolas, monospace; user-select: none;
-    text-shadow: 0 1px 2px rgba(0,0,0,.6);
+    position: fixed; top: 12px; left: 12px;
+    background: rgba(255,255,255,.85); border: 4px solid #ffb703; border-radius: 16px;
+    padding: 8px 14px; color: #264653; user-select: none;
+    font: 16px/1.5 "Comic Sans MS", "Chalkboard SE", ui-rounded, sans-serif;
   }
-  #hud .score { font-size: 28px; color: #58d68d; }
-  #hud .hint { color: #7d8590; font-size: 13px; margin-top: 4px; }
+  #hud .score { font-size: 26px; font-weight: bold; color: #e63946; }
+  #hud .hint { color: #5a6b7b; font-size: 12px; margin-top: 4px; }
+  #legend {
+    position: fixed; top: 12px; right: 12px; display: flex; flex-direction: column; gap: 6px;
+    background: rgba(255,255,255,.85); border: 4px solid #ffb703; border-radius: 16px;
+    padding: 8px 12px; font: 14px/1.6 "Comic Sans MS", sans-serif; color: #264653;
+  }
+  .legend-row { display: flex; align-items: center; gap: 6px; }
+  .legend-row .pts { margin-left: auto; font-weight: bold; color: #e63946; }
   #over {
     position: fixed; inset: 0; display: none; place-items: center;
-    background: rgba(0,0,0,.55); color: #fff; text-align: center;
-    font: 24px/1.6 ui-monospace, Consolas, monospace;
+    background: rgba(255, 240, 200, .8); color: #264653; text-align: center;
+    font: 24px/1.6 "Comic Sans MS", "Chalkboard SE", ui-rounded, sans-serif;
   }
   #over.show { display: grid; }
-  #over small { display: block; margin-top: 8px; color: #9aa4b2; font-size: 14px; }
+  #over .big { font-size: 56px; }
+  #over small { display: block; margin-top: 10px; color: #5a6b7b; font-size: 15px; }
+  #pop {
+    position: fixed; left: 50%; top: 38%; transform: translate(-50%,-50%);
+    font: 36px "Comic Sans MS", sans-serif; color: #e63946; font-weight: bold;
+    pointer-events: none; opacity: 0; text-shadow: 0 2px 0 #fff;
+  }
+  #pop.show { animation: pop .8s ease-out; }
+  @keyframes pop {
+    0% { opacity: 0; transform: translate(-50%,-50%) scale(.4); }
+    30% { opacity: 1; transform: translate(-50%,-50%) scale(1.2); }
+    100% { opacity: 0; transform: translate(-50%,-90%) scale(1); }
+  }
   canvas { display: block; }
 </style>
 </head>
 <body>
 <div id="hud">
-  <div class="score">得分 <span id="score">0</span></div>
-  <div class="hint">方向键 / WASD 移动 · 撞墙或咬到自己即结束</div>
+  <div class="score">🍎 得分 <span id="score">0</span></div>
+  <div class="hint">方向键 / WASD 移动 · 吃水果变长变快</div>
 </div>
+<div id="legend"></div>
 <div id="over">
-  <div>💀 游戏结束<br>得分 <span id="final">0</span>
+  <div><span class="big">🎉 游戏结束</span><br>得分 <span id="final">0</span>
     <small>按 R 或点击 重新开始</small>
   </div>
 </div>
+<div id="pop"></div>
 <script type="importmap">
 { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
 </script>
@@ -40,9 +62,30 @@ import * as THREE from 'three';
 
 // ---------- 常量 ----------
 const N = 16;                 // 网格 N x N
-const TICK0 = 150;            // 初始步长 ms
-const TICK_MIN = 70;          // 最快步长
+const TICK0 = 160;            // 初始步长 ms
+const TICK_MIN = 75;          // 最快步长
 const CELL = 1;               // 格子世界尺寸
+
+// ---------- 食物类型（不同分值、不同形状颜色） ----------
+const FOOD_TYPES = [
+  { name: '苹果',   emoji: '🍎', points: 1,  weight: 10, color: 0xe63946, shape: 'sphere' },
+  { name: '香蕉',   emoji: '🍌', points: 2,  weight: 7,  color: 0xffd166, shape: 'capsule' },
+  { name: '橙子',   emoji: '🍊', points: 3,  weight: 4,  color: 0xf77f00, shape: 'icosahedron' },
+  { name: '葡萄',   emoji: '🍇', points: 5,  weight: 2,  color: 0x7b2cbf, shape: 'dodecahedron' },
+  { name: '彩虹糖', emoji: '🌈', points: 10, weight: 1,  color: 0x06d6a0, shape: 'torus' },
+];
+function pickFoodType() {
+  let total = FOOD_TYPES.reduce((s, f) => s + f.weight, 0);
+  let r = Math.random() * total;
+  for (const f of FOOD_TYPES) { r -= f.weight; if (r <= 0) return f; }
+  return FOOD_TYPES[0];
+}
+
+// ---------- 图例 ----------
+const legendEl = document.getElementById('legend');
+legendEl.innerHTML = '<b>🍭 食物值</b>' + FOOD_TYPES.map(f =>
+  `<div class="legend-row"><span>${f.emoji}</span><span>${f.name}</span><span class="pts">+${f.points}</span></div>`
+).join('');
 
 // ---------- 坐标 ----------
 const wx = i => i - N / 2 + 0.5;
@@ -55,17 +98,17 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0d1117);
+scene.background = new THREE.Color(0xfff6e9);
 
 const half = N * CELL / 2;
 const camera = new THREE.OrthographicCamera(-half, half, half, -half, 0.1, 100);
 camera.position.set(0, 20, 0);
 camera.lookAt(0, 0, 0);
 
-// 棋盘格地板
+// 草地风格地板（明亮的浅绿色棋盘）
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(N, N),
-  new THREE.MeshLambertMaterial({ color: 0x161b22 })
+  new THREE.MeshLambertMaterial({ color: 0xd8f3b5 })
 );
 floor.rotation.x = -Math.PI / 2;
 floor.position.y = -0.51;
@@ -74,27 +117,48 @@ for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
   if ((i + j) % 2) {
     const t = new THREE.Mesh(
       new THREE.PlaneGeometry(CELL - 0.04, CELL - 0.04),
-      new THREE.MeshLambertMaterial({ color: 0x1c232c })
+      new THREE.MeshLambertMaterial({ color: 0xbde29b })
     );
     t.rotation.x = -Math.PI / 2;
     t.position.set(wx(i), -0.5, wz(j));
     scene.add(t);
   }
 }
-// 边界线
+// 彩色边界
 scene.add(new THREE.LineSegments(
   new THREE.EdgesGeometry(new THREE.BoxGeometry(N, 0.4, N)),
-  new THREE.LineBasicMaterial({ color: 0x30363d })
+  new THREE.LineBasicMaterial({ color: 0xffb703 })
 ));
 
-const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
 dirLight.position.set(10, 20, 5);
-scene.add(dirLight, new THREE.AmbientLight(0x404040, 1.2));
+scene.add(dirLight, new THREE.AmbientLight(0xffffff, 1.0));
 
-// 蛇身（对象池：预建 N*N 个立方体，按需显示）
-const segGeo = new THREE.BoxGeometry(0.9, 0.9, 0.9);
-const segMat = new THREE.MeshLambertMaterial({ color: 0x3fb950 });
-const headMat = new THREE.MeshLambertMaterial({ color: 0x58d68d });
+// 蛇身（对象池：预建 N*N 个圆角方块）
+const segGeo = new THREE.BoxGeometry(0.85, 0.85, 0.85);
+const segMat = new THREE.MeshLambertMaterial({ color: 0x52b788 });
+const headMat = new THREE.MeshLambertMaterial({ color: 0x40916c });
+// 简单眼睛，让蛇头有表情
+function makeHeadExtras() {
+  const g = new THREE.Group();
+  const eyeGeo = new THREE.SphereGeometry(0.12, 12, 10);
+  const whiteMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const blackMat = new THREE.MeshLambertMaterial({ color: 0x1d1d1d });
+  const e1 = new THREE.Mesh(eyeGeo, whiteMat);
+  const e2 = e1.clone();
+  e1.position.set(0.16, 0.15, 0.42);
+  e2.position.set(-0.16, 0.15, 0.42);
+  const p1 = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), blackMat);
+  const p2 = p1.clone();
+  p1.position.set(0.16, 0.15, 0.52);
+  p2.position.set(-0.16, 0.15, 0.52);
+  g.add(e1, e2, p1, p2);
+  return g;
+}
+const headExtras = makeHeadExtras();
+headExtras.position.y = 0;
+scene.add(headExtras);
+
 const pool = Array.from({ length: N * N }, () => {
   const m = new THREE.Mesh(segGeo, segMat);
   m.visible = false;
@@ -102,34 +166,59 @@ const pool = Array.from({ length: N * N }, () => {
   return m;
 });
 
-// 食物
-const food = new THREE.Mesh(
-  new THREE.SphereGeometry(0.38, 24, 18),
-  new THREE.MeshLambertMaterial({ color: 0xf85149 })
-);
-scene.add(food);
-let foodSpin = 0, foodCell = null;
+// 食物网格（对象池，每个食物一个 mesh）
+function foodGeo(type) {
+  switch (type.shape) {
+    case 'sphere':         return new THREE.SphereGeometry(0.4, 20, 16);
+    case 'capsule':        return new THREE.CapsuleGeometry(0.22, 0.5, 4, 12);
+    case 'icosahedron':    return new THREE.IcosahedronGeometry(0.42);
+    case 'dodecahedron':   return new THREE.DodecahedronGeometry(0.42);
+    case 'torus':          return new THREE.TorusGeometry(0.3, 0.14, 12, 24);
+    default:               return new THREE.SphereGeometry(0.38, 24, 18);
+  }
+}
+const foodPool = FOOD_TYPES.map(t => ({
+  mesh: null, type: t, cell: null, spin: 0, bob: Math.random() * Math.PI * 2
+}));
+// 每个食物类型可一次出现多个实例，为简单起见为每个类型建一个实例组
+const instances = [];   // 活动食物列表：{ mesh, type, cell }
+function makeFoodMesh(type) {
+  const mesh = new THREE.Mesh(foodGeo(type), new THREE.MeshLambertMaterial({ color: type.color }));
+  scene.add(mesh);
+  return mesh;
+}
 
 // ---------- 状态 ----------
 let snake, dir, pending, tickMs, score, alive;
 const scoreEl = document.getElementById('score');
 const overEl = document.getElementById('over');
 const finalEl = document.getElementById('final');
+const popEl = document.getElementById('pop');
 
 function emptyCell() {
   const occupied = new Set(snake.map(s => s.x + ',' + s.z));
+  for (const inst of instances) if (inst.cell) occupied.add(inst.cell.x + ',' + inst.cell.z);
   const free = [];
   for (let i = 0; i < N; i++) for (let j = 0; j < N; j++)
     if (!occupied.has(i + ',' + j)) free.push([i, j]);
   return free.length ? free[(Math.random() * free.length) | 0] : null;
 }
 
-function placeFood() {
+function spawnFood() {
+  const type = pickFoodType();
   const c = emptyCell();
-  if (!c) { alive = false; food.visible = false; gameOver(); return; }
-  foodCell = { x: c[0], z: c[1] };
-  food.position.set(wx(foodCell.x), 0, wz(foodCell.z));
-  food.visible = true;
+  if (!c) { alive = false; gameOver(); return; }
+  const mesh = makeFoodMesh(type);
+  const inst = { mesh, type, cell: { x: c[0], z: c[1] }, spin: 0 };
+  mesh.position.set(wx(c[0]), 0.1, wz(c[1]));
+  instances.push(inst);
+}
+
+function showPop(text) {
+  popEl.textContent = text;
+  popEl.classList.remove('show');
+  void popEl.offsetWidth;
+  popEl.classList.add('show');
 }
 
 function reset() {
@@ -139,10 +228,13 @@ function reset() {
   tickMs = TICK0;
   score = 0;
   alive = true;
-  foodCell = null;
   scoreEl.textContent = '0';
   overEl.classList.remove('show');
-  placeFood();
+  // 清理旧食物
+  for (const inst of instances) { scene.remove(inst.mesh); inst.mesh.geometry.dispose(); }
+  instances.length = 0;
+  // 初始食物
+  spawnFood(); spawnFood(); spawnFood();
   renderSnake();
 }
 
@@ -155,6 +247,10 @@ function renderSnake() {
     m.material = i === 0 ? headMat : segMat;
     m.position.set(wx(seg.x), 0, wz(seg.z));
   }
+  // 让眼睛朝向头部（简单近似：放在最前段上方）
+  headExtras.position.set(wx(snake[0].x), 0.15, wz(snake[0].z));
+  const rot = Math.atan2(dir.x, dir.z);
+  headExtras.rotation.y = rot;
 }
 
 function step() {
@@ -164,11 +260,19 @@ function step() {
   const key = head.x + ',' + head.z;
   if (snake.slice(0, -1).some(s => s.x + ',' + s.z === key)) return gameOver();
   snake.unshift(head);
-  if (head.x === foodCell.x && head.z === foodCell.z) {
-    score++;
+
+  // 检查吃到哪个食物
+  const eaten = instances.findIndex(inst => inst.cell && inst.cell.x === head.x && inst.cell.z === head.z);
+  if (eaten >= 0) {
+    const inst = instances.splice(eaten, 1)[0];
+    scene.remove(inst.mesh);
+    score += inst.type.points;
     scoreEl.textContent = score;
-    tickMs = Math.max(TICK_MIN, TICK0 - score * 4);
-    placeFood();
+    tickMs = Math.max(TICK_MIN, TICK0 - score * 2);
+    showPop(`+${inst.type.points} ${inst.type.emoji}`);
+    spawnFood();
+    // 高分食物额外奖励：再放一个
+    if (inst.type.points >= 5) spawnFood();
   } else {
     snake.pop();
   }
@@ -209,7 +313,14 @@ function loop(now) {
     acc -= tickMs;
     if (alive) step();
   }
-  if (food.visible) { foodSpin += 0.03; food.rotation.y = foodSpin; }
+  // 食物动效
+  const t = now * 0.003;
+  for (const inst of instances) {
+    inst.spin += 0.02;
+    inst.mesh.rotation.y = inst.spin;
+    inst.mesh.position.y = 0.1 + Math.sin(t + inst.spin) * 0.15;
+    inst.mesh.scale.setScalar(1 + Math.sin(t * 1.5) * 0.08);
+  }
   renderer.render(scene, camera);
 }
 reset();
