@@ -153,9 +153,14 @@
   @keyframes flash { 0% { opacity: .9; } 100% { opacity: 0; } }
 
   @media (max-width: 720px) {
-    #legend { max-width: 168px; padding: 8px; }
+    #hud { min-width: 0; }
+    #hud .title { font-size: 15px; }
+    #hud .score { font-size: 24px; }
+    #hud .combo { font-size: 13px; }
+    #hud .combo b { font-size: 15px; }
+    #hud .best { font-size: 13px; }
+    #legend { max-width: 100%; padding: 8px; }
     .chip { font-size: 13px; padding: 2px 7px; }
-    #hud .score { font-size: 26px; }
     #pad { grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(2, 52px); }
   }
 </style>
@@ -177,7 +182,7 @@
 </div>
 
 <div id="legend">
-  <div class="lg-title">🎒 食物图鉴 <button id="snd" title="开关音效">🔊</button></div>
+  <div class="lg-title"><span class="lg-label">🎒 食物图鉴</span><button id="snd" title="开关音效">🔊</button></div>
   <div class="chips" id="chips"></div>
 </div>
 
@@ -839,18 +844,33 @@ window.__candy = {
   get dir() { return { ...dir }; },
   get foods() { return foods.map(f => ({ x: f.x, z: f.z, p: f.type.p, e: f.type.e, exp: f.expireAt || 0 })); },
   get combo() { return combo; },
+  get boardRect() { // 棋盘在屏幕像素中的矩形（供自动化校验不被面板遮挡）
+    const v = new THREE.Vector3();
+    const px = x => (1 + v.set(x, 0, scene.position.z).project(camera).x) / 2 * innerWidth;
+    // 相机 up 轴 = 世界 +Z：NDC.y 随 z 增大而增大，屏幕像素 y 相反
+    const py = z => (1 - v.set(0, 0, z + scene.position.z).project(camera).y) / 2 * innerHeight;
+    return { top: py(-half), bottom: py(half), left: px(-half), right: px(half) };
+  },
 };
-
-// ================= 自适应相机（棋盘始终完整可见） =================
-function fitCamera() {
-  const a = innerWidth / innerHeight;
-  const fit = half / Math.min(a, 1 / a);
-  camera.left = -fit; camera.right = fit;
-  camera.top = fit; camera.bottom = -fit;
-  camera.updateProjectionMatrix();
-}
-addEventListener('resize', () => {
-  renderer.setSize(innerWidth, innerHeight);
+ // ================= 自适应相机（格子永远正方形，棋盘让开面板） =================
+ function fitCamera() {
+   const w = innerWidth, h = innerHeight;
+   const r = id => document.getElementById(id).getBoundingClientRect();
+   const top = Math.max(r('hud').bottom, r('legend').bottom, 0);
+   const bot = r('pad').top;
+   const s = Math.max(60, Math.min(w, bot - top - 8));  // 棋盘边长 px
+   const k = N / s;                                       // 每像素世界单位（两轴相同 → 格子正方形）
+   const a = w * k / 2, a2 = h * k / 2;
+   camera.left = -a; camera.right = a;
+   camera.top = a2; camera.bottom = -a2;
+   camera.updateProjectionMatrix();
+   // 棋盘中心（局部 0,0）平移到可用区像素中心 (w/2, (top+bot)/2)：
+   // 相机 up 轴 = 世界 −Z，py(z) = (1 + (z + posZ)/a2) * h/2，令 py = (top+bot)/2 解出 posZ
+   scene.position.x = 0;
+   scene.position.z = ((top + bot) / h - 1) * a2;
+ }
+ addEventListener('resize', () => {
+   renderer.setSize(innerWidth, innerHeight);
   fitCamera();
 });
 fitCamera();
