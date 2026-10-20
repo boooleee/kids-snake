@@ -7,7 +7,8 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐍</text></svg>" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=Baloo+2:wght@600;800&display=swap" rel="stylesheet" />
+<!-- 非阻塞加载：国内加载不到时直接走本地回退字体，不白屏 -->
+<link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=Baloo+2:wght@600;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
 <style>
   :root {
     --pink: #ff6f91;
@@ -182,6 +183,15 @@
 
 <div id="flash"></div>
 
+<div id="pause" class="overlay">
+  <div class="card">
+    <div class="mascot">😴</div>
+    <h2>休息一下吧</h2>
+    <p class="sub">按 P 或点按钮继续</p>
+    <button id="resume" class="big-btn">▶ 继续玩耍</button>
+  </div>
+</div>
+
 <div id="pad">
   <button class="up"    data-d="up">▲</button>
   <button class="left"  data-d="left">◀</button>
@@ -200,7 +210,7 @@
       <button class="mode" data-mode="hard">🔥 挑战模式<small>撞到墙就结束</small></button>
     </div>
     <button id="play" class="big-btn">▶ 开始玩耍</button>
-    <p class="hint">方向键 / WASD / 底部按钮 控制 · R 重开</p>
+    <p class="hint">方向键 / WASD / 底部按钮 控制 · P 暂停 · R 重开</p>
   </div>
 </div>
 
@@ -220,11 +230,23 @@
   </div>
 </div>
 
-<script type="importmap">
-{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
-</script>
 <script type="module">
-import * as THREE from 'three';
+// ============ 3D 引擎多 CDN 兜底（国内 jsDelivr/npmmirror 优先，海外 unpkg 殿后）============
+const CDN_CHAIN = [
+  'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
+  'https://registry.npmmirror.com/three/0.160.0/files/build/three.module.js',
+  'https://unpkg.com/three@0.160.0/build/three.module.js',
+];
+let THREE = null;
+for (const url of CDN_CHAIN) {
+  try { THREE = await import(url); break; } catch (_) { /* 换下一个 */ }
+}
+if (!THREE) {
+  document.body.innerHTML =
+    '<div style="display:grid;place-items:center;height:100vh;font-family:sans-serif;font-size:20px;color:#4a3b6b">' +
+    '🐍 加载 3D 引擎失败（几个 CDN 都连不上）。<br>换个网络或清下代理再刷新试试～</div>';
+  throw new Error('three failed to load');
+}
 
 // ================= 常量 =================
 const N = 16;            // 网格 N x N
@@ -483,6 +505,9 @@ function overSound() { [520, 400, 300, 200].forEach((f, i) => setTimeout(() => b
 
 // ================= 状态 =================
 let snake, dir, pending, tickMs, score, alive, foods = [], state = 'start', mode = 'easy', combo = 0;
+let paused = false, pausedAt = 0;      // 暂停（P 键 / 切后台自动）
+const COMBO_MS = 4000;                 // 连击保持窗口：4 秒内没吃到就归零
+let lastEatAt = 0;
 const scoreEl = document.getElementById('score');
 const bestEl = document.getElementById('best');
 const best2El = document.getElementById('best2');
@@ -495,6 +520,8 @@ const overTitle = document.getElementById('overTitle');
 const overMascot = document.getElementById('overMascot');
 const comboEl = document.getElementById('combo');
 const overEncEl = document.getElementById('overEnc');
+const pauseEl = document.getElementById('pause');
+const resumeBtn = document.getElementById('resume');
 
 let best = +(localStorage.getItem('candy-snake-best') || 0);
 bestEl.textContent = best;
@@ -510,7 +537,11 @@ function emptyCell() {
 
 function spawnFood() {
   const c = emptyCell();
-  if (!c) { alive = false; state = 'over'; gameOver(); return; }
+  if (!c) {
+    // 棋盘被吃满：仅在对局中算胜利，其他界面下静默不处理（修掉满盘误触 gameOver）
+    if (state === 'playing' && alive) gameOver(true);
+    return;
+  }
   const type = pickFood();
   const f = { x: c[0], z: c[1], type, mesh: makeFood(type) };
   if (type.timeLimit) f.expireAt = performance.now() + type.timeLimit;
@@ -530,7 +561,10 @@ function reset() {
   tickMs = TICK0;
   score = 0;
   combo = 0;
+  lastEatAt = 0;
   comboEl.textContent = '0';
+  paused = false;
+  pauseEl.classList.remove('show');
   alive = true;
   foods.forEach(f => scene.remove(f.mesh));
   foods = [];
@@ -580,6 +614,7 @@ function step() {
     const type = foods[eatIdx].type;
     score += type.p;
     combo++;
+    lastEatAt = performance.now();   // 刷新连击保持窗口
     scoreEl.textContent = score;
     scoreEl.classList.remove('bump'); void scoreEl.offsetWidth; scoreEl.classList.add('bump');
     comboEl.textContent = combo;
@@ -611,15 +646,15 @@ const ENC = [
   '没关系，再来一次会更棒！', '哇，好接近了，再冲一把！', '小蛇已经很棒啦，加油！',
   '下次试试更小心地转弯～', '吃得越多分越高，试试金色星星！', '贪吃蛇精神：永不放弃！',
 ];
-function gameOver() {
+function gameOver(win = false) {
   alive = false;
   state = 'over';
   finalEl.textContent = score;
   best2El.textContent = best;
-  medalEl.textContent = medal(score);
-  overTitle.textContent = score >= 60 ? '太厉害啦！' : '游戏结束啦';
-  overMascot.textContent = score >= 60 ? '🥳' : '🐍';
-  overEncEl.textContent = ENC[(Math.random() * ENC.length) | 0];
+  medalEl.textContent = win ? '👑' : medal(score);
+  overTitle.textContent = win ? '棋盘吃满啦！' : (score >= 60 ? '太厉害啦！' : '游戏结束啦');
+  overMascot.textContent = win ? '🏆' : (score >= 60 ? '🥳' : '🐍');
+  overEncEl.textContent = win ? '全吃光了，你就是糖果王！' : ENC[(Math.random() * ENC.length) | 0];
   const isBest = score > 0 && score >= best;
   newbestEl.classList.toggle('show', isBest);
   overEl.classList.add('show');
@@ -634,6 +669,31 @@ function startGame() {
   setTimeout(() => beep(780, .14, 'triangle', .16), 90);
 }
 function restart() { reset(); state = 'playing'; }
+
+// ================= 暂停 =================
+function pauseGame() {
+  if (state !== 'playing' || paused) return;
+  paused = true;
+  pausedAt = performance.now();
+  // 限时食物（⭐）暂停时冻结剩余时间，恢复时平移
+  for (const f of foods) if (f.expireAt != null) f.savedRemain = f.expireAt - performance.now();
+  pauseEl.classList.add('show');
+  beep(400, .08, 'sine', .12);
+}
+function resumeGame() {
+  if (!paused) return;
+  const d = performance.now() - pausedAt;
+  for (const f of foods) {
+    if (f.savedRemain != null) { f.expireAt = performance.now() + f.savedRemain; f.savedRemain = null; }
+  }
+  paused = false;
+  last = performance.now();          // 防止恢复瞬间补步
+  pauseEl.classList.remove('show');
+  beep(620, .08, 'sine', .12);
+}
+resumeBtn.addEventListener('click', resumeGame);
+// 切到后台自动暂停，回来不会冤死
+document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
 function toMenu() {
   overEl.classList.remove('show');
   startEl.classList.add('show');
@@ -668,6 +728,10 @@ addEventListener('keydown', e => {
     if (k.toLowerCase() === 'r' || k === 'Enter' || k === ' ') { e.preventDefault(); restart(); }
     return;
   }
+  if (state === 'playing') {
+    if (k.toLowerCase() === 'p') { e.preventDefault(); paused ? resumeGame() : pauseGame(); return; }
+    if (paused) return;              // 暂停时不响应方向键
+  }
   if (k.toLowerCase() === 'r') { restart(); return; }
   if (!d) return;
   e.preventDefault();
@@ -698,6 +762,7 @@ document.querySelectorAll('.mode').forEach(btn => {
 let acc = 0, last = performance.now();
 function loop(now) {
   requestAnimationFrame(loop);
+  if (paused) { last = now; return; }   // 暂停时冻结整个场景
   const dt = Math.min((now - last) / 1000, 0.1);
   acc += Math.min(now - last, 500);
   last = now;
@@ -705,14 +770,20 @@ function loop(now) {
     acc -= tickMs;
     if (state === 'playing' && alive) step();
   }
+  // 连击衰减：窗口内没吃到就归零
+  if (state === 'playing' && combo > 0 && now - lastEatAt > COMBO_MS) {
+    combo = 0;
+    comboEl.textContent = '0';
+  }
 
   const t = now / 1000;
   // 食物：上下浮动 + 轻轻摇摆 + 光晕呼吸
   // 限时食物（⭐）过期自动跑掉，并闪烁提示
+  const nowMs = performance.now();
   for (let i = foods.length - 1; i >= 0; i--) {
     const f = foods[i];
     if (f.expireAt) {
-      const remain = f.expireAt - performance.now();
+      const remain = f.expireAt - nowMs;
       if (remain <= 0) {
         removeFood(i);
         if (state === 'playing' && alive) spawnFood();
