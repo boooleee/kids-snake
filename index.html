@@ -77,23 +77,6 @@
   }
   .chip b { color: var(--c); font-size: 15px; }
 
-  /* ---------- 底部：糖果方向键 ---------- */
-  #pad {
-    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
-    display: grid; grid-template-columns: repeat(3, 58px); grid-template-rows: repeat(2, 58px);
-    gap: 7px; opacity: .92;
-  }
-  #pad button {
-    border: 0; border-radius: 18px; font-size: 22px; color: #fff; cursor: pointer;
-    font-family: var(--font); box-shadow: 0 5px 0 rgba(0,0,0,.18);
-    background: linear-gradient(160deg, var(--blue), var(--purple));
-  }
-  #pad button:active { transform: translateY(4px); box-shadow: 0 1px 0 rgba(0,0,0,.18); }
-  #pad .up    { grid-column: 2; grid-row: 1; }
-  #pad .left  { grid-column: 1; grid-row: 2; background: linear-gradient(160deg, var(--mint), var(--blue)); }
-  #pad .down  { grid-column: 2; grid-row: 2; background: linear-gradient(160deg, var(--pink), var(--purple)); }
-  #pad .right { grid-column: 3; grid-row: 2; background: linear-gradient(160deg, var(--yellow), var(--pink)); color: #7a4b00; }
-
   /* ---------- 覆盖层 ---------- */
   .overlay {
     position: fixed; inset: 0; display: none; place-items: center; z-index: 30;
@@ -144,6 +127,43 @@
   .ghost-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #ddd3ff; }
   .hint { font-size: 13px; color: #a89ac8; margin-top: 12px; }
 
+  /* ---------- 道具效果 HUD ---------- */
+  #fx { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .fxchip {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: #fff; border: 2px solid var(--c); border-radius: 999px;
+    padding: 2px 9px; font-size: 13px; box-shadow: 0 2px 0 var(--c);
+    color: var(--c); font-weight: 700;
+  }
+  .fxchip b { font-size: 13px; }
+
+  /* ---------- 滑动方向指示 ---------- */
+  #swipe {
+    position: fixed; left: 50%; top: 45%; transform: translate(-50%,-50%);
+    font-size: 80px; pointer-events: none; z-index: 20; opacity: 0;
+  }
+  #swipe.on { animation: swipePop .5s ease; }
+  @keyframes swipePop {
+    0%   { opacity: 0; transform: translate(-50%,-50%) scale(.55); }
+    22%  { opacity: .9; }
+    100% { opacity: 0; transform: translate(-50%,-50%) scale(1.3); }
+  }
+
+  /* ---------- 徽章 ---------- */
+  .achv { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; margin: 10px 0 2px; }
+  .achv .b { font-size: 24px; filter: grayscale(1) opacity(.32); transition: .25s; }
+  .achv .b.on { filter: none; }
+  .achv .b.new { animation: bump .7s ease; }
+  .achv-cap { font-size: 12px; color: #a89ac8; margin: 6px 0 2px; }
+
+  /* ---------- 分享卡 ---------- */
+  #share .card { max-width: 384px; padding: 16px; }
+  #shareImg { width: 100%; border-radius: 16px; box-shadow: 0 10px 26px rgba(90,60,140,.25); display: block; }
+  .share-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; justify-content: center; }
+  /* 结算卡按钮：弹性换行，窄屏不拥挤 */
+  .over-btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .over-btns .ghost-btn { margin: 0; }
+
   /* 吃到食物时屏幕轻微闪光 */
   #flash {
     position: fixed; inset: 0; z-index: 25; pointer-events: none; opacity: 0;
@@ -161,7 +181,8 @@
     #hud .best { font-size: 13px; }
     #legend { max-width: 100%; padding: 8px; }
     .chip { font-size: 13px; padding: 2px 7px; }
-    #pad { grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(2, 52px); }
+    .fxchip { font-size: 12px; padding: 1px 7px; }
+    #swipe { font-size: 64px; }
   }
 </style>
 </head>
@@ -179,6 +200,7 @@
   <div class="score">⭐ <span id="score">0</span></div>
   <div class="combo">连击 <b id="combo">0</b></div>
   <div class="best">🏆 最高 <span id="best">0</span></div>
+  <div id="fx" hidden></div>
 </div>
 
 <div id="legend">
@@ -187,6 +209,7 @@
 </div>
 
 <div id="flash"></div>
+<div id="swipe"></div>
 
 <div id="pause" class="overlay">
   <div class="card">
@@ -197,12 +220,7 @@
   </div>
 </div>
 
-<div id="pad">
-  <button class="up"    data-d="up">▲</button>
-  <button class="left"  data-d="left">◀</button>
-  <button class="down"  data-d="down">▼</button>
-  <button class="right" data-d="right">▶</button>
-</div>
+<!-- 方向键已改为整屏滑动 -->
 
 <div id="start" class="overlay show">
   <div class="card">
@@ -215,7 +233,7 @@
       <button class="mode" data-mode="hard">🔥 挑战模式<small>撞到墙就结束</small></button>
     </div>
     <button id="play" class="big-btn">▶ 开始玩耍</button>
-    <p class="hint">方向键 / WASD / 底部按钮 控制 · P 暂停 · R 重开</p>
+    <p class="hint">📱 滑动 · ⌨ 方向键/WASD 控制 · P 暂停 · R 重开</p>
   </div>
 </div>
 
@@ -225,15 +243,32 @@
     <h2 id="overTitle">游戏结束啦</h2>
     <div class="final">得分 <span id="final">0</span></div>
     <div class="medal" id="medal">🥉</div>
+    <div id="achv" class="achv"></div>
+    <div class="achv-cap" id="achvCap">🏆 徽章 0 / 9</div>
     <div class="bestline">🏆 最高 <span id="best2">0</span><span id="newbest" class="newbest">🎉 新纪录！</span></div>
     <p class="enc" id="overEnc">没关系，再来一次会更棒！</p>
-    <div>
+    <div class="over-btns">
       <button id="again" class="big-btn">🔁 再玩一局</button>
       <button id="menu" class="ghost-btn">🏠 换模式</button>
+      <button id="shareBtn" class="ghost-btn">📤 分享战绩</button>
     </div>
     <p class="hint">按 R 或 Enter 也能重新开始</p>
   </div>
 </div>
+
+  <div id="share" class="overlay">
+    <div class="card">
+      <h2>📤 战绩卡片</h2>
+      <p class="sub">保存或复制，发给小伙伴炫耀吧～</p>
+      <img id="shareImg" alt="战绩卡片" />
+      <div class="share-row">
+        <button id="shareSave" class="big-btn" style="font-size:18px;padding:11px 22px">💾 保存卡片</button>
+        <button id="shareCopy" class="ghost-btn" style="margin:0">📋 复制图片</button>
+        <button id="shareClose" class="ghost-btn" style="margin:0">关闭</button>
+      </div>
+      <p class="hint">有些手机「复制图片」不可用时，用「保存卡片」存到相册/下载。</p>
+    </div>
+  </div>
 
 <script type="module">
 // ============ 3D 引擎多 CDN 兜底（国内 jsDelivr/npmmirror 优先，海外 unpkg 殿后）============
@@ -280,10 +315,26 @@ function pickFood() {
   return FOODS[0];
 }
 
-// 图鉴徽章（HUD + 开始界面共用）
-const chipHTML = FOODS.map(f =>
-  `<span class="chip" style="--c:#${f.c.toString(16).padStart(6, '0')}">${f.e} <b>+${f.p}</b></span>`
-).join('');
+// ================= 道具（吃后获得临时能力） =================
+const POWERS = [
+  { e: '⏱', n: '慢动作', power: 'slow',   c: 0x7ec8ff, p: 2, w: 26 },
+  { e: '🛡', n: '护身',   power: 'shield', c: 0x6be7c6, p: 2, w: 26 },
+  { e: '👁', n: '透视',   power: 'xray',   c: 0xb18cff, p: 2, w: 24 },
+  { e: '💨', n: '冲刺',   power: 'dash',   c: 0xff9f43, p: 2, w: 24 },
+];
+const POWER_TOTAL = POWERS.reduce((s, p) => s + p.w, 0);
+const POWER_CHANCE = 0.30;   // 30% 概率刷出道具
+function pickPower() {
+  let r = Math.random() * POWER_TOTAL;
+  for (const p of POWERS) { if ((r -= p.w) <= 0) return p; }
+  return POWERS[0];
+}
+
+// 图鉴徽章（HUD + 开始界面共用；普通食物 + 道具）
+const chipHTML =
+  FOODS.map(f => `<span class="chip" style="--c:#${f.c.toString(16).padStart(6, '0')}">${f.e} <b>+${f.p}</b></span>`).join('') +
+  '<span style="flex-basis:100%"></span>' +
+  POWERS.map(f => `<span class="chip" style="--c:#${f.c.toString(16).padStart(6, '0')};opacity:.9">${f.e} <b>${f.n}</b></span>`).join('');
 document.getElementById('chips').innerHTML = chipHTML;
 document.getElementById('chips2').innerHTML = chipHTML;
 
@@ -375,6 +426,30 @@ function makeSeg() {
   return g;
 }
 const pool = Array.from({ length: N * N }, makeSeg);
+
+// ---------- 护盾光环（套在蛇头，可叠 2 层） ----------
+const shieldRing = new THREE.Mesh(
+  new THREE.TorusGeometry(0.68, 0.08, 12, 28),
+  new THREE.MeshBasicMaterial({ color: 0x6be7c6, transparent: true, opacity: .8 })
+);
+shieldRing.rotation.x = Math.PI / 2;
+shieldRing.position.y = 0;
+shieldRing.visible = false;
+scene.add(shieldRing);
+
+// ---------- 透视面包屑（沿直线从蛇头指向最佳食物） ----------
+const XRAY_DOTS = 9;
+const xrayDots = Array.from({ length: XRAY_DOTS }, () => {
+  const m = new THREE.Mesh(
+    new THREE.CircleGeometry(0.11, 16),
+    new THREE.MeshBasicMaterial({ color: 0xb18cff, transparent: true, opacity: .8, depthWrite: false, side: THREE.DoubleSide })
+  );
+  m.rotation.x = -Math.PI / 2;
+  m.position.y = 0.06;
+  m.visible = false;
+  scene.add(m);
+  return m;
+});
 
 // ================= 食物（3D emoji + 光晕 + 分值角标） =================
 const emojiTexCache = new Map();
@@ -513,6 +588,9 @@ let snake, dir, pending, tickMs, score, alive, foods = [], state = 'start', mode
 let paused = false, pausedAt = 0;      // 暂停（P 键 / 切后台自动）
 const COMBO_MS = 4000;                 // 连击保持窗口：4 秒内没吃到就归零
 let lastEatAt = 0;
+let pfx = { slow: 0, dash: 0, xray: 0 };   // 道具效果的截止时间戳
+let shield = 0;                          // 护盾次数（0..2）
+let stats = { eaten: 0, maxCombo: 0, stars: 0, usedShield: false, win: false, mode: 'easy' };
 const scoreEl = document.getElementById('score');
 const bestEl = document.getElementById('best');
 const best2El = document.getElementById('best2');
@@ -547,7 +625,7 @@ function spawnFood() {
     if (state === 'playing' && alive) gameOver(true);
     return;
   }
-  const type = pickFood();
+  const type = Math.random() < POWER_CHANCE ? pickPower() : pickFood();
   const f = { x: c[0], z: c[1], type, mesh: makeFood(type) };
   if (type.timeLimit) f.expireAt = performance.now() + type.timeLimit;
   foods.push(f);
@@ -575,6 +653,12 @@ function reset() {
   foods = [];
   scoreEl.textContent = '0';
   overEl.classList.remove('show');
+  pfx = { slow: 0, dash: 0, xray: 0 };
+  shield = 0;
+  stats = { eaten: 0, maxCombo: 0, stars: 0, usedShield: false, win: false, mode: mode };
+  shieldRing.visible = false;
+  xrayDots.forEach(d => d.visible = false);
+  document.getElementById('fx').hidden = true;
   spawnFood();
   spawnFood();          // 棋盘上同时有两个食物，更有得选
   renderSnake();
@@ -596,29 +680,205 @@ function renderSnake() {
   head.userData.eyes.rotation.y = Math.atan2(-dir.x, -dir.z);
 }
 
+// ---------- 道具效果 ----------
+function applyPower(pw, cell) {
+  const now = performance.now();
+  if (pw === 'slow')   pfx.slow = now + 4000;
+  if (pw === 'dash')   pfx.dash = now + 4000;
+  if (pw === 'xray')   pfx.xray = now + 5000;
+  if (pw === 'shield') shield = Math.min(2, shield + 1);
+  const msg = { slow: '慢动作!', dash: '冲刺!', xray: '透视!', shield: '护盾+' }[pw];
+  const col = { slow: '#7ec8ff', dash: '#ff9f43', xray: '#b18cff', shield: '#6be7c6' }[pw];
+  addPopup(msg, cell, col);
+  burst(cell, { slow: 0x7ec8ff, dash: 0xff9f43, xray: 0xb18cff, shield: 0x6be7c6 }[pw]);
+  beep(700, .1, 'triangle', .2); setTimeout(() => beep(900, .12, 'triangle', .16), 80);
+}
+function shieldPop(cell) {
+  addPopup('🛡 护盾!', cell, '#6be7c6');
+  burst(cell, 0x6be7c6);
+  beep(880, .12, 'triangle', .22); setTimeout(() => beep(520, .14, 'triangle', .18), 90);
+}
+function effTick() {
+  const now = performance.now();
+  let t = tickMs;
+  if (pfx.dash > now) t = Math.max(58, t * 0.55);     // 冲刺：更快
+  else if (pfx.slow > now) t = t * 1.75;               // 慢动作：更慢
+  return t;
+}
+
+// ---------- 成就徽章 ----------
+const ACHV = [
+  { e: '🎮', n: '初次上路', d: '完成一局',         test: s => true },
+  { e: '🥇', n: '金蛇',     d: '单局 60 分',       test: s => s.score >= 60 },
+  { e: '👑', n: '糖果王',   d: '单局 100 分',      test: s => s.score >= 100 },
+  { e: '🍖', n: '大胃王',   d: '一局吃 20 个食物', test: s => s.eaten >= 20 },
+  { e: '⚡', n: '连击大师', d: '单局 10 连击',     test: s => s.maxCombo >= 10 },
+  { e: '⭐', n: '摘星者',   d: '吃到幸运星',       test: s => s.stars > 0 },
+  { e: '🛡', n: '护身使者', d: '护盾挡过危机',     test: s => s.usedShield },
+  { e: '🏆', n: '满盘通关', d: '吃满棋盘',         test: s => s.win },
+  { e: '🔥', n: '挑战摘星', d: '挑战模式 60 分',   test: s => s.win || (s.mode === 'hard' && s.score >= 60) },
+];
+let unlocked = new Set(JSON.parse(localStorage.getItem('candy-snake-achv') || '[]'));
+function checkAchv() {
+  const ctx = { score, eaten: stats.eaten, maxCombo: stats.maxCombo, stars: stats.stars, usedShield: stats.usedShield, win: stats.win, mode: stats.mode };
+  const newly = [];
+  for (const a of ACHV) if (!unlocked.has(a.e) && a.test(ctx)) { unlocked.add(a.e); newly.push(a); }
+  if (newly.length) localStorage.setItem('candy-snake-achv', JSON.stringify([...unlocked]));
+  return newly;
+}
+function renderAchv(newly) {
+  const el = document.getElementById('achv');
+  el.innerHTML = ACHV.map(a =>
+    `<span class="b ${unlocked.has(a.e) ? 'on' : ''} ${newly.some(n => n.e === a.e) ? 'new' : ''}" title="${a.n}·${a.d}">${a.e}</span>`
+  ).join('');
+  document.getElementById('achvCap').textContent =
+    `🏆 徽章 ${unlocked.size} / ${ACHV.length}` + (newly.length ? ` · 新解锁 ${newly.length} 枚！` : '');
+}
+
+// ---------- 道具 HUD / 护盾 / 透视（每帧） ----------
+let fxHudAt = 0;
+function updateFx(nowMs) {
+  const now = nowMs;
+  // 护盾光环套在蛇头
+  if (shield > 0) {
+    shieldRing.visible = true;
+    const h = snake[0];
+    shieldRing.position.set(wx(h.x), 0, wz(h.z));
+    shieldRing.rotation.z += 0.05;
+    shieldRing.material.opacity = 0.5 + 0.3 * Math.sin(now / 150);
+  } else shieldRing.visible = false;
+  // 透视面包屑：蛇头 → 最高价值且未过期的食物
+  const xrayOn = pfx.xray > now && state === 'playing' && alive;
+  let target = null;
+  if (xrayOn) target = foods.filter(f => !f.expireAt || f.expireAt > now).sort((a, b) => b.type.p - a.type.p)[0] || null;
+  for (let i = 0; i < xrayDots.length; i++) {
+    const d = xrayDots[i];
+    if (xrayOn && target) {
+      const h = snake[0];
+      const f = (i + 1) / (xrayDots.length + 1);
+      d.visible = true;
+      d.position.x = wx(h.x) + (wx(target.x) - wx(h.x)) * f;
+      d.position.z = wz(h.z) + (wz(target.z) - wz(h.z)) * f;
+      d.material.opacity = 0.35 + 0.4 * (0.5 + 0.5 * Math.sin(now / 200 + i * 0.5));
+      d.scale.setScalar(0.6 + 0.9 * f);
+    } else d.visible = false;
+  }
+  // 冲刺尾迹
+  if (pfx.dash > now && state === 'playing' && alive && Math.random() < 0.55) burst(snake[snake.length - 1], 0xff9f43);
+}
+function updateFxHud(nowMs) {
+  if (nowMs - fxHudAt < 100) return;
+  fxHudAt = nowMs;
+  const remain = s => Math.max(0, Math.ceil((s - nowMs) / 1000));
+  const items = [];
+  if (pfx.slow > nowMs) items.push(`<span class="fxchip" style="--c:#7ec8ff">⏱ <b>${remain(pfx.slow)}s</b></span>`);
+  if (pfx.dash > nowMs) items.push(`<span class="fxchip" style="--c:#ff9f43">💨 <b>${remain(pfx.dash)}s</b></span>`);
+  if (pfx.xray > nowMs) items.push(`<span class="fxchip" style="--c:#b18cff">👁 <b>${remain(pfx.xray)}s</b></span>`);
+  if (shield > 0) items.push(`<span class="fxchip" style="--c:#6be7c6">🛡 <b>×${shield}</b></span>`);
+  const el = document.getElementById('fx');
+  el.hidden = items.length === 0;
+  el.innerHTML = items.join('');
+}
+
+// ---------- 战绩分享卡 ----------
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function buildShareCard() {
+  const cv = document.createElement('canvas');
+  cv.width = 1000; cv.height = 1250;
+  const x = cv.getContext('2d');
+  const g = x.createLinearGradient(0, 0, 0, 1250);
+  g.addColorStop(0, '#aee6ff'); g.addColorStop(0.5, '#fdf3c4'); g.addColorStop(1, '#ffd7ec');
+  x.fillStyle = g; x.fillRect(0, 0, 1000, 1250);
+  x.fillStyle = '#fffdf7'; roundRect(x, 60, 70, 880, 1110, 40); x.fill();
+  x.textAlign = 'center';
+  x.font = '120px sans-serif'; x.fillText('🐍', 500, 220);
+  x.fillStyle = '#4a3b6b'; x.font = '800 62px "ZCOOL KuaiLe",sans-serif'; x.fillText('糖果贪吃蛇', 500, 300);
+  x.font = '110px sans-serif'; x.fillText(medalEl.textContent, 500, 440);
+  x.fillStyle = '#ff8c2b'; x.font = '800 150px "Baloo 2",sans-serif'; x.fillText(String(score), 500, 590);
+  x.fillStyle = '#9b8ec4'; x.font = '40px "PingFang SC",sans-serif'; x.fillText('本局得分', 500, 640);
+  const rows = [
+    ['🏆 最高', best],
+    ['⚡ 最长连击', stats.maxCombo],
+    ['🍎 吃到食物', stats.eaten],
+    ['🏅 徽章', `${unlocked.size} / ${ACHV.length}`],
+    ['模式', stats.mode === 'hard' ? '🔥 挑战' : '🌈 轻松'],
+  ];
+  let ry = 730;
+  rows.forEach(([k, v]) => {
+    x.textAlign = 'left'; x.fillStyle = '#8b7bb8'; x.font = '36px "PingFang SC",sans-serif'; x.fillText(k, 190, ry);
+    x.textAlign = 'right'; x.fillStyle = '#4a3b6b'; x.font = '800 44px "Baloo 2",sans-serif'; x.fillText(String(v), 810, ry);
+    x.fillStyle = '#efe6ff'; x.fillRect(190, ry + 14, 620, 4); ry += 92;
+  });
+  x.textAlign = 'center'; x.fillStyle = '#a89ac8'; x.font = '30px "PingFang SC",sans-serif';
+  x.fillText('用 Three.js 做出的 · kids-snake', 500, 1150);
+  return cv.toDataURL('image/png');
+}
+function openShare() {
+  document.getElementById('shareImg').src = buildShareCard();
+  document.getElementById('share').classList.add('show');
+}
+document.getElementById('shareBtn').addEventListener('click', openShare);
+document.getElementById('shareClose').addEventListener('click', () => document.getElementById('share').classList.remove('show'));
+document.getElementById('shareSave').addEventListener('click', () => {
+  const a = document.createElement('a');
+  a.href = document.getElementById('shareImg').src;
+  a.download = `candy-snake-${Date.now()}.png`;
+  document.body.appendChild(a); a.click(); a.remove();
+});
+document.getElementById('shareCopy').addEventListener('click', async () => {
+  const b = document.getElementById('shareCopy');
+  try {
+    const blob = await (await fetch(document.getElementById('shareImg').src)).blob();
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    b.textContent = '✅ 已复制'; setTimeout(() => b.textContent = '📋 复制图片', 1500);
+  } catch (_) { b.textContent = '⚠ 复制不可用，请保存'; setTimeout(() => b.textContent = '📋 复制图片', 1500); }
+});
+
 function step() {
   if (pending.length) dir = pending.shift();
   let head = { x: snake[0].x + dir.x, z: snake[0].z + dir.z };
+  const now = performance.now();
 
   if (head.x < 0 || head.x >= N || head.z < 0 || head.z >= N) {
     if (mode === 'easy') {                 // 轻松模式：穿墙而过
       head.x = (head.x + N) % N;
       head.z = (head.z + N) % N;
       beep(300, .06, 'square', .1);
+    } else if (shield > 0) {              // 护盾：挡下撞墙，弹到对面
+      shield--; stats.usedShield = true;
+      shieldPop(head);
+      head.x = (head.x + N) % N;
+      head.z = (head.z + N) % N;
     } else {
       return gameOver();
     }
   }
 
   const key = head.x + ',' + head.z;
-  if (snake.slice(0, -1).some(s => s.x + ',' + s.z === key)) return gameOver();
+  if (snake.slice(0, -1).some(s => s.x + ',' + s.z === key)) {
+    if (shield > 0) { shield--; stats.usedShield = true; shieldPop(head); return; }  // 护盾：这一格冻结，快转向！
+    return gameOver();
+  }
   snake.unshift(head);
 
   const eatIdx = foods.findIndex(f => f.x === head.x && f.z === head.z);
   if (eatIdx >= 0) {
     const type = foods[eatIdx].type;
-    score += type.p;
+    const dashOn = pfx.dash > now;
+    const gained = dashOn ? type.p * 2 : type.p;
+    score += gained;
     combo++;
+    stats.eaten++;
+    stats.maxCombo = Math.max(stats.maxCombo, combo);
+    if (type.e === '⭐') stats.stars++;
     lastEatAt = performance.now();   // 刷新连击保持窗口
     scoreEl.textContent = score;
     scoreEl.classList.remove('bump'); void scoreEl.offsetWidth; scoreEl.classList.add('bump');
@@ -626,10 +886,11 @@ function step() {
     const fl = document.getElementById('flash');
     fl.classList.remove('on'); void fl.offsetWidth; fl.classList.add('on');
     tickMs = Math.max(TICK_MIN, TICK0 - score * TICK_STEP);
-    addPopup('+' + type.p, head, '#' + type.c.toString(16).padStart(6, '0'));
+    addPopup((dashOn ? '💨+' : '+') + gained, head, dashOn ? '#ff9f43' : '#' + type.c.toString(16).padStart(6, '0'));
     if (combo > 0 && combo % 5 === 0) addPopup('连击 x' + combo + '!', head, '#e8590c');
     burst(head, type.c);
     eatSound(type.p);
+    if (type.power) applyPower(type.power, head);
     removeFood(eatIdx);
     spawnFood();
     if (score > best) { best = score; localStorage.setItem('candy-snake-best', best); bestEl.textContent = best; }
@@ -662,6 +923,9 @@ function gameOver(win = false) {
   overEncEl.textContent = win ? '全吃光了，你就是糖果王！' : ENC[(Math.random() * ENC.length) | 0];
   const isBest = score > 0 && score >= best;
   newbestEl.classList.toggle('show', isBest);
+  stats.win = win;
+  const newly = checkAchv();
+  renderAchv(newly);
   overEl.classList.add('show');
   overSound();
 }
@@ -743,14 +1007,32 @@ addEventListener('keydown', e => {
   turn(d);
 });
 
-// 屏幕方向键
-document.querySelectorAll('#pad button').forEach(b => {
-  b.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    if (state === 'start') startGame();
-    if (state === 'playing') turn(PAD[b.dataset.d]);
-  });
-});
+// 整屏滑动切方向（触屏）——避开按钮/面板
+const SWIPE_MIN = 24;
+let swipe = null;
+function showSwipe(name) {
+  const el = document.getElementById('swipe');
+  el.textContent = { up: '⬆️', down: '⬇️', left: '⬅️', right: '➡️' }[name];
+  el.classList.remove('on'); void el.offsetWidth; el.classList.add('on');
+}
+function doSwipe(name) {
+  showSwipe(name);
+  if (state === 'start') { startGame(); return; }
+  if (state === 'playing' && !paused) turn(PAD[name]);
+}
+function swipeFrom(dx, dy) {
+  if (Math.abs(dx) < SWIPE_MIN && Math.abs(dy) < SWIPE_MIN) return;
+  doSwipe(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+}
+addEventListener('touchstart', e => {
+  if (e.target.closest('button, .overlay, #legend, #hud')) return;
+  const t = e.touches[0]; swipe = { x: t.clientX, y: t.clientY };
+}, { passive: true });
+addEventListener('touchend', e => {
+  if (!swipe) return;
+  const t = e.changedTouches[0];
+  swipeFrom(t.clientX - swipe.x, t.clientY - swipe.y); swipe = null;
+}, { passive: true });
 
 document.getElementById('play').addEventListener('click', startGame);
 document.getElementById('again').addEventListener('click', restart);
@@ -771,8 +1053,9 @@ function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.1);
   acc += Math.min(now - last, 500);
   last = now;
-  while (acc >= tickMs) {
-    acc -= tickMs;
+  const et = effTick();
+  while (acc >= et) {
+    acc -= et;
     if (state === 'playing' && alive) step();
   }
   // 连击衰减：窗口内没吃到就归零
@@ -780,6 +1063,10 @@ function loop(now) {
     combo = 0;
     comboEl.textContent = '0';
   }
+  // 道具效果（护盾光环 / 透视面包屑 / 冲刺尾迹 / HUD 计时）
+  const nowFx = performance.now();
+  updateFx(nowFx);
+  updateFxHud(nowFx);
 
   const t = now / 1000;
   // 食物：上下浮动 + 轻轻摇摆 + 光晕呼吸
@@ -844,6 +1131,9 @@ window.__candy = {
   get dir() { return { ...dir }; },
   get foods() { return foods.map(f => ({ x: f.x, z: f.z, p: f.type.p, e: f.type.e, exp: f.expireAt || 0 })); },
   get combo() { return combo; },
+  get powers() { return { slow: pfx.slow, dash: pfx.dash, xray: pfx.xray, shield }; },
+  get achv() { return [...unlocked]; },
+  get stats() { return { ...stats }; },
   get boardRect() { // 棋盘在屏幕像素中的矩形（供自动化校验不被面板遮挡）
     const v = new THREE.Vector3();
     const px = x => (1 + v.set(x, 0, scene.position.z).project(camera).x) / 2 * innerWidth;
@@ -857,7 +1147,7 @@ window.__candy = {
    const w = innerWidth, h = innerHeight;
    const r = id => document.getElementById(id).getBoundingClientRect();
    const top = Math.max(r('hud').bottom, r('legend').bottom, 0);
-   const bot = r('pad').top;
+   const bot = h - 8;   // 方向键已移除，棋盘下边界用屏幕底边
    const s = Math.max(60, Math.min(w, bot - top - 8));  // 棋盘边长 px
    const k = N / s;                                       // 每像素世界单位（两轴相同 → 格子正方形）
    const a = w * k / 2, a2 = h * k / 2;
